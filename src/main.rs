@@ -19,6 +19,9 @@ fn main() -> io::Result<()>{
                         println!("[WARNING!!] Connected client , but couldnt resolve peer address {}",e);
                     }
                 }
+                if let Err(e) = http::request::handle_connection(stream){
+                    eprintln!("[ERROR] Failed to handle request");
+                }
             }
             Err(e)=>{
                 eprintln!("[ERROR] Failed to accept incoming connections : {}",e);

@@ -1,6 +1,6 @@
 use std::io::{self,Read};
 use std::net::TcpStream;
-
+use crate::http::response::HttpResponse;
 pub struct HttpRequest{
     pub raw_data : Vec<u8>
 }
@@ -29,6 +29,7 @@ pub fn handle_connection(mut stream : TcpStream) -> io::Result<()> {
     println!("\n--- [RECEIVED RAW HTTP REQUEST] ---");
     println!("{}", parsed_string);
     println!("------------------------------------\n");
+    HttpResponse::send_hello(&mut stream)?;
     Ok(())
 
 }
