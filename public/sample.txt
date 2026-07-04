@@ -1,0 +1,3 @@
+Welcome to the static file server!
+
+This is a sample text file served with the correct MIME type.
