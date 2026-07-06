@@ -1,7 +1,7 @@
 mod http;
 mod utils;
 mod handler;
-
+mod server;
 use std::io;
 use std::net::{TcpListener, TcpStream};
 
