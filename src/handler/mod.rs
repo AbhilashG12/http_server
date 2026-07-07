@@ -1,3 +1,5 @@
 pub mod static_handler;
+pub mod error;
 
-pub use static_handler::StaticFileHandler;
+pub use crate::handler::error::ErrorHandler;
+pub use crate::handler::static_handler::StaticFileHandler;
