@@ -6,7 +6,7 @@ use crate::http::{HttpResponse, HttpStatus};
 use crate::utils::path::{PathSanitizer, PathError};
 use crate::utils::mime::MimeTypes;
 
-// Handles serving static files from the filesystem
+/// Handles serving static files from the filesystem
 #[derive(Clone)]
 pub struct StaticFileHandler {
     root_dir: PathBuf,
@@ -15,7 +15,7 @@ pub struct StaticFileHandler {
 }
 
 impl StaticFileHandler {
-    // Creates a new StaticFileHandler with the given root directory
+    /// Creates a new StaticFileHandler with the given root directory
     pub fn new(root_dir: impl Into<PathBuf>) -> Self {
         let root_dir = root_dir.into();
         let path_sanitizer = PathSanitizer::new(root_dir.clone());
@@ -28,7 +28,7 @@ impl StaticFileHandler {
         }
     }
 
-    // Serves a static file from the given URL path
+    /// Serves a static file from the given URL path
     pub fn serve_file(&self, url_path: &str) -> Result<HttpResponse, StaticFileError> {
         // Step 1: Sanitize the path
         let fs_path = self.path_sanitizer.sanitizer(url_path)
@@ -41,6 +41,9 @@ impl StaticFileHandler {
                 PathError::PermissionDenied(_) => StaticFileError::PermissionDenied(url_path.to_string()),
             })?;
 
+        // Debug: Print the resolved path
+        println!("📂 Serving file: {}", fs_path.display());
+
         // Step 2: Read the file
         let contents = self.read_file(&fs_path)?;
         
@@ -50,15 +53,16 @@ impl StaticFileHandler {
         
         // Step 4: Determine MIME type
         let mime_type = self.mime_types.get_mime_type_from_path(&fs_path);
+        println!("📋 MIME type: {}", mime_type);
         
         // Step 5: Build the response
         let mut response = HttpResponse::ok(contents)
-            .content_type(mime_type);
+            .content_type(mime_type.clone());
         
         // Add cache control for performance
         response.headers.insert(
             "Cache-Control".to_string(),
-            "public, max-age=3600".to_string() // Cache for 1 hour
+            "public, max-age=3600".to_string()
         );
         
         // Add last modified header
@@ -72,7 +76,7 @@ impl StaticFileHandler {
         Ok(response)
     }
 
-    // Reads a file from disk with proper error handling
+    /// Reads a file from disk with proper error handling
     fn read_file(&self, path: &std::path::Path) -> Result<String, StaticFileError> {
         // Check if file exists and is readable
         if !path.exists() {
@@ -89,36 +93,43 @@ impl StaticFileHandler {
             Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
                 Err(StaticFileError::PermissionDenied(path.display().to_string()))
             }
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                Err(StaticFileError::NotFound(path.display().to_string()))
+            }
             Err(_) => Err(StaticFileError::InternalError),
         }
     }
 
-    // Serves a file and returns a ready-to-send HttpResponse
+    /// Serves a file and returns a ready-to-send HttpResponse
     pub fn handle_request(&self, url_path: &str) -> HttpResponse {
         match self.serve_file(url_path) {
-            Ok(response) => response,
+            Ok(response) => {
+                println!("✅ Successfully served: {}", url_path);
+                response
+            }
             Err(error) => {
-                eprintln!("Static file error: {}", error);
+                eprintln!("❌ Static file error: {}", error);
+                // Return appropriate error response (404, 403, etc.)
                 error.to_http_response()
             }
         }
     }
 
-    // Checks if a file exists at the given URL path
+    /// Checks if a file exists at the given URL path
     pub fn file_exists(&self, url_path: &str) -> bool {
         self.path_sanitizer.sanitizer(url_path)
             .map(|path| path.exists() && path.is_file())
             .unwrap_or(false)
     }
 
-    // Gets the MIME type for a URL path without serving the file
+    /// Gets the MIME type for a URL path without serving the file
     pub fn get_mime_type(&self, url_path: &str) -> Option<String> {
         let path = self.path_sanitizer.sanitizer(url_path).ok()?;
         Some(self.mime_types.get_mime_type_from_path(&path))
     }
 }
 
-// Errors that can occur during static file handling
+/// Errors that can occur during static file handling
 #[derive(Debug, Clone, PartialEq)]
 pub enum StaticFileError {
     NotFound(String),
@@ -133,7 +144,9 @@ impl std::fmt::Display for StaticFileError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             StaticFileError::NotFound(path) => write!(f, "File not found: {}", path),
-            StaticFileError::DirectoryNotAllowed(path) => write!(f, "Directory access not allowed: {}", path),
+            StaticFileError::DirectoryNotAllowed(path) => {
+                write!(f, "Directory access not allowed: {}", path)
+            }
             StaticFileError::AccessDenied(path) => write!(f, "Access denied: {}", path),
             StaticFileError::InvalidPath(path) => write!(f, "Invalid path: {}", path),
             StaticFileError::PermissionDenied(path) => write!(f, "Permission denied: {}", path),
@@ -145,18 +158,100 @@ impl std::fmt::Display for StaticFileError {
 impl std::error::Error for StaticFileError {}
 
 impl StaticFileError {
-    // Converts the error to an HTTP response
+    /// Converts the error to an HTTP response with correct status codes
     pub fn to_http_response(&self) -> HttpResponse {
         match self {
             StaticFileError::NotFound(path) => {
+                // Return 404 Not Found with beautiful error page
                 let body = format!(
                     r#"<!DOCTYPE html>
-<html>
-<head><title>404 Not Found</title></head>
-<body style="font-family: Arial; padding: 40px; text-align: center;">
-    <h1 style="color: #c0392b;">404 - File Not Found</h1>
-    <p>The requested file <code>{}</code> was not found.</p>
-    <a href="/">Go Home</a>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>404 - Not Found</title>
+    <style>
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }}
+        .error-container {{
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 600px;
+            width: 100%;
+            padding: 50px;
+            text-align: center;
+            animation: fadeIn 0.6s ease-in;
+        }}
+        @keyframes fadeIn {{
+            from {{ opacity: 0; transform: translateY(20px); }}
+            to {{ opacity: 1; transform: translateY(0); }}
+        }}
+        .error-code {{
+            font-size: 6em;
+            font-weight: bold;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            line-height: 1.2;
+        }}
+        .error-message {{
+            font-size: 1.5em;
+            color: #2d3748;
+            margin: 20px 0;
+        }}
+        .error-detail {{
+            color: #718096;
+            margin: 20px 0 30px;
+            padding: 15px;
+            background: #f7fafc;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+            text-align: left;
+            font-size: 0.9em;
+            word-break: break-all;
+        }}
+        .home-link {{
+            display: inline-block;
+            padding: 12px 30px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            transition: transform 0.2s;
+        }}
+        .home-link:hover {{
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }}
+        .file-path {{
+            background: #edf2f7;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-family: monospace;
+            color: #2d3748;
+        }}
+    </style>
+</head>
+<body>
+    <div class="error-container">
+        <div class="error-code">404</div>
+        <div class="error-message">Page Not Found</div>
+        <div class="error-detail">
+            💡 The requested file <span class="file-path">{}</span> could not be found on this server.
+        </div>
+        <a href="/" class="home-link">🏠 Go Home</a>
+    </div>
 </body>
 </html>"#,
                     path
@@ -239,4 +334,3 @@ impl StaticFileError {
         }
     }
 }
-

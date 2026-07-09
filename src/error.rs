@@ -1,68 +1,94 @@
 use std::io;
-use std::path::PathBuf;
 use std::sync::mpsc;
 
-use crate::http::{HttpStatus};
+use crate::http::HttpStatus;
 use crate::handler::static_handler::StaticFileError;
-use crate::server::{ConfigError,ThreadPoolError};
+use crate::server::{ConfigError, ThreadPoolError};
 use crate::utils::path::PathError;
 
-#[derive(Debug,thiserror::Error)]
+/// Central error type for the entire server
+#[derive(Debug, thiserror::Error)]
 pub enum ServerError {
-    
-    #[error("I/O error : {0}")]
+    /// I/O errors from std::io
+    #[error("I/O error: {0}")]
     Io(#[from] io::Error),
-
-    #[error("Http parse error : {0}")]
+    
+    /// HTTP parsing errors
+    #[error("HTTP parse error: {0}")]
     HttpParse(String),
-
-    #[error("Configuration error : {0}")]
+    
+    /// Configuration errors
+    #[error("Configuration error: {0}")]
+    Config(#[from] ConfigError),
+    
+    /// Thread pool errors
+    #[error("Thread pool error: {0}")]
     ThreadPool(#[from] ThreadPoolError),
-
-    #[error("Path error : {0}")]
+    
+    /// Path sanitization errors
+    #[error("Path error: {0}")]
     Path(#[from] PathError),
-
-    #[error("Static file error : {0}")]
+    
+    /// Static file errors - properly mapped
+    #[error("Static file error: {0}")]
     StaticFile(#[from] StaticFileError),
-
-    #[error("Channel error : {0}")]
+    
+    /// Channel errors during shutdown
+    #[error("Channel error: {0}")]
     Channel(String),
-
+    
+    /// Shutdown signal received
     #[error("Server shutting down")]
     Shutdown,
-
-    #[error("Internal error : {0}")]
+    
+    /// Generic internal error
+    #[error("Internal error: {0}")]
     Internal(String),
     
-    #[error("Not found : {0}")]
+    /// Not found error
+    #[error("Not found: {0}")]
     NotFound(String),
-
-    #[error("Permission denied : {0}")]
+    
+    /// Permission denied
+    #[error("Permission denied: {0}")]
     PermissionDenied(String),
-
-    #[error("Bad request : {0}")]
+    
+    /// Bad request
+    #[error("Bad request: {0}")]
     BadRequest(String),
-
 }
 
 impl ServerError {
-    pub fn to_http_status(&self)->HttpStatus{
-        match self{
-            ServerError::NotFound(_)=>HttpStatus::NotFound,
-            ServerError::PermissionDenied(_)=>HttpStatus::Forbidden,
-            ServerError::BadRequest(_)=>HttpStatus::BadRequest,
-            ServerError::Shutdown=>HttpStatus::ServiceUnavailable,
-            ServerError::HttpParse(_)=>HttpStatus::BadRequest,
-            _ => HttpStatus::InternalServerError
+    /// Converts the error to an HTTP status code
+    pub fn to_http_status(&self) -> HttpStatus {
+        match self {
+            ServerError::NotFound(_) => HttpStatus::NotFound,
+            ServerError::PermissionDenied(_) => HttpStatus::Forbidden,
+            ServerError::BadRequest(_) => HttpStatus::BadRequest,
+            ServerError::Shutdown => HttpStatus::ServiceUnavailable,
+            ServerError::HttpParse(_) => HttpStatus::BadRequest,
+            ServerError::StaticFile(e) => {
+                match e {
+                    StaticFileError::NotFound(_) => HttpStatus::NotFound,
+                    StaticFileError::DirectoryNotAllowed(_) => HttpStatus::Forbidden,
+                    StaticFileError::AccessDenied(_) => HttpStatus::Forbidden,
+                    StaticFileError::PermissionDenied(_) => HttpStatus::Forbidden,
+                    StaticFileError::InvalidPath(_) => HttpStatus::BadRequest,
+                    StaticFileError::InternalError => HttpStatus::InternalServerError,
+                }
+            }
+            _ => HttpStatus::InternalServerError,
         }
     }
 
-    pub fn to_error_html(&self)->String{
+    /// Creates an error page HTML for the error
+    pub fn to_error_html(&self) -> String {
         let status = self.to_http_status();
         let code = status.code();
         let message = status.reason_phrase();
         let detail = self.to_string();
-         format!(
+
+        format!(
             r#"<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -121,6 +147,7 @@ impl ServerError {
             border-left: 4px solid #667eea;
             text-align: left;
             font-size: 0.9em;
+            word-break: break-all;
         }}
         .home-link {{
             display: inline-block;
@@ -151,17 +178,19 @@ impl ServerError {
         )
     }
 
-    pub fn to_error_json(&self)->String{
+    /// Creates a JSON error response for APIs
+    pub fn to_error_json(&self) -> String {
         let status = self.to_http_status();
-        format!(r#"{{"error": {{"code": {}, "message": "{}", "detail": "{}"}}}}"#,
+        format!(
+            r#"{{"error": {{"code": {}, "message": "{}", "detail": "{}"}}}}"#,
             status.code(),
             status.reason_phrase(),
-            self.to_string().escape_default())
-
+            self.to_string().escape_default()
+        )
     }
-
 }
 
+/// Result type using ServerError
 pub type ServerResult<T> = Result<T, ServerError>;
 
 /// Extension trait for converting Result types to ServerResult
@@ -233,5 +262,3 @@ impl From<serde_json::Error> for ServerError {
         ServerError::Internal(format!("JSON error: {}", e))
     }
 }
-
-
